@@ -2,7 +2,6 @@ package backup;
 
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
-import org.joda.time.Hours;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,17 +16,17 @@ public class ConfigValidator {
 		assertExistAndReadable(config.vm2Disk());
 		assertExistAndWritable(config.vm1BackupFolder());
 		assertExistAndWritable(config.vm2BackupFolder());
-		if (config.hoursBetweenBackups().isLessThan(Hours.ONE))
+		if (config.hoursBetweenBackups() <= 0)
 			throw new IllegalArgumentException("Hours between backup have to be greater that 0");
 	}
 
 	private void assertExistAndReadable(Path p) {
-		if (!Files.exists(p) && Files.isReadable(p))
+		if (!Files.exists(p) || !Files.isReadable(p))
 			throw new IllegalArgumentException("Path " + p + " either doesn't exist or isn't readable");
 	}
 
 	private void assertExistAndWritable(Path p) {
-		if (!Files.exists(p) && Files.isWritable(p))
+		if (!Files.exists(p) || !Files.isWritable(p))
 			throw new IllegalArgumentException("Path " + p + " either doesn't exist or isn't readable");
 	}
 }
