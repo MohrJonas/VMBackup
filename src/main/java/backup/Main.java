@@ -2,7 +2,9 @@ package backup;
 
 import lombok.Cleanup;
 import lombok.SneakyThrows;
+import my.utils.Utils;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang.ArrayUtils;
 import org.joda.time.DateTime;
 import org.joda.time.Hours;
 
@@ -17,17 +19,9 @@ import java.util.Optional;
 public class Main {
 
 
-	private static final Path LAST_BACKUP_FILE_VM_1 = Path.of("/home", System.getProperty("user.name"), ".vmbackup", "lastBackup1.data");
-	private static final Path LAST_BACKUP_FILE_VM_2 = Path.of("/home", System.getProperty("user.name"), ".vmbackup", "lastBackup2.data");
+	private static final Path LAST_BACKUP_FILE_VM_1 = Path.of("/var", "spool", "VMBackup", "LastBackup1.data");
+	private static final Path LAST_BACKUP_FILE_VM_2 = Path.of("/var", "spool", "VMBackup", "LastBackup2.data");
 
-	//VM1-name
-	//VM2-name
-	//VM1-disk
-	//VM2-disk
-	//Backup-Path-VM1
-	//Backup-Path-VM2
-	//Hours between backups
-	//Backups to keep
 	@SneakyThrows
 	public static void main(String[] args) {
 		if (args.length != 7) {
@@ -43,7 +37,7 @@ public class Main {
 			System.out.println("Mounting disk " + backupConfig.vm1Disk().toAbsolutePath() + " to /mnt/vm1");
 			Mounter.mount(backupConfig.vm1Disk(), Path.of("/mnt/vm1"));
 			System.out.println("Creating Backup of VM 1");
-			createBackup(Path.of("/mnt/vm1"), backupConfig.vm1BackupFolder());
+			createBackup(Path.of("/mnt/vm1"), backupConfig.vm1BackupFolder(), "--progress", "--ignore-errors", "--exclude={\"/dev/*\",\"/proc/*\",\"/sys/*\",\"/tmp/*\",\"/run/*\",\"/mnt/*\",\"/media/*\",\"/lost+found\", \"/swapfile\"}");
 			System.out.println("Unmounting disk of VM 1");
 			Mounter.unmount(Path.of("/mnt/vm1"));
 			System.out.println("Setting last backup date of VM1");
@@ -51,10 +45,10 @@ public class Main {
 		} else System.out.println("Backup of VM 1 shouldn't be created");
 		if (shouldCreateBackup(backupConfig.vm2Name(), backupConfig.hoursBetweenBackups(), 2)) {
 			System.out.println("Backup of VM 2 should be created");
-			System.out.println("Mounting disk " + backupConfig.vm2Disk().toAbsolutePath() + " to /mnt/vm1");
+			System.out.println("Mounting disk " + backupConfig.vm2Disk().toAbsolutePath() + " to /mnt/vm2");
 			Mounter.mount(backupConfig.vm2Disk(), Path.of("/mnt/vm2"));
 			System.out.println("Creating Backup of VM 2");
-			createBackup(Path.of("/mnt/vm2"), backupConfig.vm2BackupFolder());
+			createBackup(Path.of("/mnt/vm2"), backupConfig.vm2BackupFolder(), "--size-only", "--progress", "--ignore-errors");
 			System.out.println("Unmounting disk of VM 2");
 			Mounter.unmount(Path.of("/mnt/vm2"));
 			System.out.println("Setting last backup date of VM 2");
@@ -74,12 +68,14 @@ public class Main {
 			System.out.println("No previous backup for VM " + vmID + " found. Creating one now");
 			return true;
 		}
-		return Hours.hoursBetween(DateTime.now(), lastBackupTime.get()).getHours() >= timeBetween;
+		final int hours = Hours.hoursBetween(lastBackupTime.get(), DateTime.now()).getHours();
+		System.out.println("Last backup was " + hours + " hours ago");
+		return hours >= timeBetween;
 	}
 
 	@SneakyThrows
-	private static void createBackup(Path diskPath, Path backupPath) {
-		runAndForward("sudo", "rsync", "-a", "-v", "--delete", diskPath.toAbsolutePath().toString(), backupPath.toAbsolutePath().toString());
+	private static void createBackup(Path diskPath, Path backupPath, String... args) {
+		runAndForward(Utils.castArray(ArrayUtils.addAll(ArrayUtils.addAll(new String[]{"sudo", "rsync", "-a", "-v"}, args), new String[]{"--delete", diskPath.toAbsolutePath() + "/", backupPath.toAbsolutePath() + "/"}), String.class));
 	}
 
 
@@ -87,11 +83,13 @@ public class Main {
 	private static Optional<DateTime> getLastBackupDate(int vmID) {
 		switch (vmID) {
 			case 1 -> {
+				System.out.println("Attempting to read time from " + LAST_BACKUP_FILE_VM_1.toAbsolutePath());
 				if (!Files.exists(LAST_BACKUP_FILE_VM_1)) return Optional.empty();
 				@Cleanup final ObjectInputStream stream1 = new ObjectInputStream(Files.newInputStream(LAST_BACKUP_FILE_VM_1));
 				return Optional.of(((DateTime) stream1.readObject()));
 			}
 			case 2 -> {
+				System.out.println("Attempting to read time from " + LAST_BACKUP_FILE_VM_2.toAbsolutePath());
 				if (!Files.exists(LAST_BACKUP_FILE_VM_2)) return Optional.empty();
 				@Cleanup final ObjectInputStream stream2 = new ObjectInputStream(Files.newInputStream(LAST_BACKUP_FILE_VM_2));
 				return Optional.of(((DateTime) stream2.readObject()));
@@ -102,12 +100,15 @@ public class Main {
 
 	@SneakyThrows
 	private static void setLastBackupDate(DateTime time, int vmID) {
+		Files.createDirectories(Path.of("/var", "spool", "VMBackup"));
 		switch (vmID) {
 			case 1 -> {
+				System.out.println("Writing time to " + LAST_BACKUP_FILE_VM_1.toAbsolutePath());
 				@Cleanup final ObjectOutputStream stream1 = new ObjectOutputStream(Files.newOutputStream(LAST_BACKUP_FILE_VM_1));
 				stream1.writeObject(time);
 			}
 			case 2 -> {
+				System.out.println("Writing time to " + LAST_BACKUP_FILE_VM_2.toAbsolutePath());
 				@Cleanup final ObjectOutputStream stream2 = new ObjectOutputStream(Files.newOutputStream(LAST_BACKUP_FILE_VM_2));
 				stream2.writeObject(time);
 			}
